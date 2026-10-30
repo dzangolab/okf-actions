@@ -1,0 +1,46 @@
+name: OKF approve
+description: Mark OKF documents approved when their pull request is merged, recording who verified them.
+author: Dzango
+branding:
+  color: green
+  icon: check-circle
+
+inputs:
+  config:
+    default: .github/okf-approve.yml
+    description: Path to the rules file. Without one, the default rules apply.
+  token:
+    default: ${{ github.token }}
+    description: Token for the GitHub API and the push. To match teams in owners, it must be able to read the organization's teams.
+  unverified-label:
+    default: "okf: unverified"
+    description: A pull request label that stops anyone being recorded as verifying its documents.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ github.event.pull_request.merged && github.event.pull_request.base.ref || github.event.pull_request.head.sha }}
+        token: ${{ inputs.token }}
+
+    - name: Apply the rules
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        GH_TOKEN: ${{ inputs.token }}
+        UNVERIFIED_LABEL: ${{ inputs.unverified-label }}
+      run: python3 "$GITHUB_ACTION_PATH/okf_approve.py"
+
+    - name: Commit and push
+      if: github.event.pull_request.merged
+      shell: bash
+      env:
+        PR: ${{ github.event.pull_request.number }}
+      run: |
+        git add -A
+        if git diff --cached --quiet; then exit 0; fi
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git commit -m "docs: record the approval of OKF documents merged in #$PR"
+        git push

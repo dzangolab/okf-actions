@@ -71,7 +71,7 @@ Each file is checked on its own, against OKF 0.2:
 
 ### `spec: ai-xf`
 
-AI-XF validates bundles, not single files: links must resolve and `id`s be unique across a bundle. A file's bundle is the nearest folder at or above it with a `manifest.ai-xf.yaml`, and a matched file with none is an error. Each bundle is validated, as a whole, by the [AI-XF reference validator](vendor/ai-xf-0.5/README.md) of the rule's version. The run warns when the manifest's `ai-xf` declares another version than the rule's.
+AI-XF validates bundles, not single files: links must resolve and `id`s be unique across a bundle. A file's bundle is the nearest folder at or above it with a `manifest.ai-xf.yaml`, and a matched file with none is an error. Each bundle is validated by the [AI-XF reference validator](vendor/ai-xf-0.5/README.md) of the rule's version, with the markdown files in it that the rule selects: exclude what isn't a concept, such as ingested originals, with a `!` glob. The run warns when the manifest's `ai-xf` declares another version than the rule's.
 
 ## Adding a spec version
 

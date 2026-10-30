@@ -4,14 +4,16 @@
 For each markdown file in the working tree, the first rule whose paths match it
 decides what it is validated against. An `okf` rule checks each file on its own;
 an `ai-xf` rule runs the AI-XF reference validator on the bundle the file is in,
-the nearest folder above it with a `manifest.ai-xf.yaml`. Errors fail the run;
-warnings are only reported.
+the nearest folder above it with a `manifest.ai-xf.yaml`, leaving out the
+bundle's markdown files the rule doesn't select. Errors fail the run; warnings
+are only reported.
 """
 
 import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -78,9 +80,9 @@ def load_rules(path):
     return rules
 
 
-def markdown_files():
+def repository_files():
     return [f for f in git("ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0")
-            if f.endswith(".md") and Path(f).exists()]
+            if f and Path(f).exists()]
 
 
 def matching(globs, files):
@@ -99,21 +101,30 @@ def bundle_of(file):
     return None
 
 
-def validate_okf(rule, files):
+def validate_okf(rule, documents):
     checker = SPECS["okf"][rule["version"]]
+    for document in documents:
+        for severity, message in checker.check(document):
+            report(severity, document, message)
+
+
+def bundle_view(bundle, documents, files, into):
+    """Link into `into` the bundle's files, leaving out the markdown files the rule doesn't select."""
     for file in files:
-        for severity, message in checker.check(file):
-            report(severity, file, message)
+        if Path(file).is_relative_to(bundle) and (not file.endswith(".md") or file in documents):
+            link = Path(into) / Path(file).relative_to(bundle)
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(Path(file).resolve())
 
 
-def validate_ai_xf(rule, files):
+def validate_ai_xf(rule, documents, files):
     version = rule["version"]
-    bundles = set()
-    for file in files:
-        if (bundle := bundle_of(file)) is None:
-            report("error", file, f"not in an AI-XF bundle: no {MANIFEST} in its folder or above (AI-XF {version} §10.3)")
+    bundles = {}
+    for document in documents:
+        if (bundle := bundle_of(document)) is None:
+            report("error", document, f"not in an AI-XF bundle: no {MANIFEST} in its folder or above (AI-XF {version} §10.3)")
         else:
-            bundles.add(bundle)
+            bundles.setdefault(bundle, set()).add(document)
 
     script = VENDOR / f"ai-xf-{version}" / "ai-xf-validate.py"
     for bundle in sorted(bundles):
@@ -130,8 +141,11 @@ def validate_ai_xf(rule, files):
             report("error", str(manifest_path), f"`conformance: {level}` must be 0, 1, 2 or 3 (AI-XF {version} §11)")
             continue
 
-        result = subprocess.run([sys.executable, "-I", str(script), str(bundle), "--level", str(level), "--json"],
-                                capture_output=True, text=True)
+        # The validator checks every markdown file in a folder: give it the bundle as the rule selects it.
+        with tempfile.TemporaryDirectory() as view:
+            bundle_view(bundle, bundles[bundle], files, view)
+            result = subprocess.run([sys.executable, "-I", str(script), view, "--level", str(level), "--json"],
+                                    capture_output=True, text=True)
         try:
             output = json.loads(result.stdout)
         except json.JSONDecodeError:
@@ -150,14 +164,15 @@ def escape(value, property=False):
 
 def main():
     rules = load_rules(os.environ.get("CONFIG", ".github/okf-validate.yml"))
-    files, claimed = markdown_files(), set()
+    files = repository_files()
+    markdown, claimed = [f for f in files if f.endswith(".md")], set()
     for rule in rules:
-        selected = sorted(matching(rule["paths"], files) - claimed)
+        selected = sorted(matching(rule["paths"], markdown) - claimed)
         claimed |= set(selected)
         if rule["spec"] == "okf":
             validate_okf(rule, selected)
         else:
-            validate_ai_xf(rule, selected)
+            validate_ai_xf(rule, selected, files)
 
     for severity, file, message in findings:
         print(f"::{severity} file={escape(file, property=True)}::{escape(message)}")

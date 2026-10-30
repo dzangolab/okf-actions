@@ -122,6 +122,17 @@ class OkfValidateTest(unittest.TestCase):
                     "specs/a.md": doc("id: a\n")})
         self.run_action([ai_xf("specs/**", level=2)], expect=1)
 
+    def test_ai_xf_bundle_leaves_out_excluded_documents(self):
+        self.write({"kb/manifest.ai-xf.yaml": "ai-xf: \"0.5\"\nname: kb\nconformance: 0\n",
+                    "kb/wiki/a.md": doc(), "kb/raw/original.md": "# An original\n"})
+        self.run_action([ai_xf("kb/**")], expect=1)
+        self.assertIn("0 error(s)", self.run_action([ai_xf("kb/**", "!kb/raw/**")]))
+
+    def test_ai_xf_bundle_at_the_repository_root(self):
+        self.write({"manifest.ai-xf.yaml": "ai-xf: \"0.5\"\nname: root\n", "a.md": doc("id: a\n"),
+                    "notes/b.md": "# B\n"})
+        self.assertIn(".: AI-XF 0.5 level 1 achieved", self.run_action([ai_xf("**", "!notes/**")]))
+
     def test_ai_xf_declared_version_mismatch_warns(self):
         self.write({"specs/manifest.ai-xf.yaml": "ai-xf: \"0.4\"\nname: specs\n", "specs/a.md": doc("id: a\n")})
         self.assertIn("declares AI-XF 0.4, but the rule validates against 0.5", self.run_action([ai_xf("specs/**")]))

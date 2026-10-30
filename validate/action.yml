@@ -1,0 +1,26 @@
+name: OKF validate
+description: Validate OKF documents against the OKF or AI-XF version each rule names.
+author: Dzango
+branding:
+  color: green
+  icon: check-square
+
+inputs:
+  config:
+    default: .github/okf-validate.yml
+    description: Path to the rules file, which says which documents to validate against which spec and version.
+
+runs:
+  using: composite
+  steps:
+    - name: Install PyYAML
+      shell: bash
+      run: |
+        python3 -m venv "$RUNNER_TEMP/okf-validate"
+        "$RUNNER_TEMP/okf-validate/bin/pip" install --quiet --require-hashes -r "$GITHUB_ACTION_PATH/requirements.txt"
+
+    - name: Validate
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: '"$RUNNER_TEMP/okf-validate/bin/python" -I "$GITHUB_ACTION_PATH/okf_validate.py"'

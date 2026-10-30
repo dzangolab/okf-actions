@@ -1,6 +1,10 @@
 version: 2
 updates:
-  - directory: /
+  - directories: [/, /approve, /validate]
     package-ecosystem: github-actions
+    schedule:
+      interval: weekly
+  - directory: /validate
+    package-ecosystem: pip
     schedule:
       interval: weekly

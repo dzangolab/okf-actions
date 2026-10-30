@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parent.parent / "okf_approve.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "approve" / "okf_approve.py"
 MERGED_AT = "2026-10-30T10:00:00Z"
 
 

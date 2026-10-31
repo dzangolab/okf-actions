@@ -28,6 +28,9 @@ sys.path.insert(0, str(HERE))
 
 import okf_0_2  # noqa: E402
 
+# The version a rule that names none is validated against. Set by hand, so that
+# adding a version doesn't change what existing rules are validated against.
+DEFAULT_VERSIONS = {"ai-xf": "0.5", "okf": "0.2"}
 IN_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 MANIFEST = "manifest.ai-xf.yaml"
 VENDOR = HERE / "vendor"
@@ -72,9 +75,7 @@ def load_rules(path):
         spec = rule.get("spec")
         if spec not in SPECS:
             fail(f"{where}: `spec` must be one of {sorted(SPECS)}")
-        if "version" not in rule:
-            fail(f"{where}: `version` is required, e.g. \"{list(SPECS[spec])[-1]}\"")
-        rule["version"] = str(rule["version"])
+        rule["version"] = str(rule.get("version", DEFAULT_VERSIONS[spec]))
         if rule["version"] not in SPECS[spec]:
             fail(f"{where}: {spec} {rule['version']} isn't supported; supported versions: {', '.join(SPECS[spec])}. "
                  "Quote the version in YAML, e.g. \"0.10\", or it is read as a number.")

@@ -111,6 +111,18 @@ class OkfValidateTest(unittest.TestCase):
         out = self.run_action([{**okf("docs/**"), "version": "0.1"}], expect=1)
         self.assertIn("okf 0.1 isn't supported; supported versions: 0.2", out)
 
+    def test_okf_version_defaults_to_0_2(self):
+        self.write({"docs/a.md": doc()})
+        rule = {"paths": ["docs/**"], "spec": "okf"}
+        self.assertIn("1 document(s) checked: 0 error(s)", self.run_action([rule]))
+
+    def test_ai_xf_version_defaults_to_0_5(self):
+        self.write({"specs/manifest.ai-xf.yaml": "ai-xf: \"0.4\"\nname: specs\n", "specs/a.md": doc("id: a\n")})
+        rule = {"paths": ["specs/**"], "spec": "ai-xf"}
+        out = self.run_action([rule])
+        self.assertIn("declares AI-XF 0.4, but the rule validates against 0.5", out)
+        self.assertIn("specs: AI-XF 0.5 level 1 achieved", out)
+
     def test_level_is_for_ai_xf_only(self):
         self.assertIn("`level` only applies", self.run_action([{**okf("docs/**"), "level": 1}], expect=1))
 

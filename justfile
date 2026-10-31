@@ -1,7 +1,7 @@
 default:
     @just --list
 
-# Tag HEAD of main as vX.Y.Z, move vX to it, and push both. VERSION is x.y.z or vx.y.z; asked for if omitted, defaulting to the next minor.
+# Set the version in pyproject.toml, commit it to main, tag that as vX.Y.Z, move vX to it, and push all of it. VERSION is x.y.z or vx.y.z; asked for if omitted, defaulting to the next minor.
 release $version="":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -39,15 +39,30 @@ release $version="":
     newest=$( { release_tags "$major."; echo "$tag"; } | sort -V | tail -n 1)
     [[ "$newest" == "$tag" ]] || fail "$tag is older than $newest"
 
-    declared=$(sed -nE 's/^version = "(.*)"$/\1/p' pyproject.toml)
-    [[ "$declared" == "${tag#v}" ]] || fail "pyproject.toml has version $declared: set it to ${tag#v} and merge that to main first"
+    # From here on, a failure undoes the local changes, so the release can be retried.
+    # The working tree is known to be clean. The next run's fetch restores vX.
+    start=$(git rev-parse HEAD)
+    undo() {
+        git reset --quiet --hard "$start"
+        git tag --delete "$tag" > /dev/null 2>&1 || true
+    }
+    trap undo EXIT
+
+    sed -i.bak -E "s/^version = \".*\"$/version = \"${tag#v}\"/" pyproject.toml
+    rm pyproject.toml.bak
+    # Already declared, for instance by a merged pull request: there's nothing to commit.
+    git diff --quiet pyproject.toml || git commit --quiet --message "chore(release): $tag" pyproject.toml
 
     git tag --annotate --message "$tag" "$tag"
     git tag --force --annotate --message "$major" "$major" > /dev/null
-    # Atomic, so that vX never moves without vX.Y.Z. Only vX may be overwritten.
-    git push --quiet --atomic origin "refs/tags/$tag" "+refs/tags/$major" || {
-        git tag --delete "$tag" > /dev/null
-        fail "push failed, nothing was released"
-    }
+    # Atomic, so that neither main nor vX moves without vX.Y.Z. Only vX may be overwritten.
+    git push --quiet --atomic origin HEAD:refs/heads/main "refs/tags/$tag" "+refs/tags/$major" || fail "push failed, nothing was released"
+    trap - EXIT
 
     echo "Released $tag and moved $major to $(git rev-parse --short HEAD)"
+
+# Run all the tests, in .venv, which is created if missing.
+test:
+    test -d .venv || python3 -m venv .venv
+    .venv/bin/pip install --quiet --require-hashes -r validate/requirements.txt
+    .venv/bin/python -m unittest discover -s tests

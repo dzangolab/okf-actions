@@ -11,7 +11,7 @@ GitHub Actions for OKF documents, one composite action per folder: `approve/` ma
 - `validate/vendor/` holds the AI-XF reference validators, copied unchanged with their licence, one folder per version. Never edit them.
 - Every behaviour is covered by an end-to-end test in `tests/`, which builds a git repository, runs the script, and checks the result. `test_approve.py` also builds a pull_request event and API fixtures (`OKF_APPROVE_FIXTURES`). `test_package.py` installs the repository with `pip install .`, as pre-commit does, and needs the network.
 - Pin actions, and the hook's `rev`, to full commit SHAs, with the version in a comment.
-- Releases are tagged `vX.Y.Z`, with a moving `vX` tag, and cover both actions and the hook; callers are told to pin the commit SHA. Set `version` in `pyproject.toml` to the release's version before tagging.
+- Releases are tagged `vX.Y.Z`, with a moving `vX` tag, and cover both actions and the hook; callers are told to pin the commit SHA. Set `version` in `pyproject.toml` to the release's version and merge that to `main`, then run `just release`, which refuses anything else. `tests/test_release.py` needs `just`, and is skipped without it.
 
 ## Checks
 

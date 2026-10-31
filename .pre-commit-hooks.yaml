@@ -1,0 +1,9 @@
+# require_serial: AI-XF rules validate whole bundles, so runs split across parallel
+# processes would validate a bundle once per process and report its findings each time.
+- description: Validate OKF documents against the OKF or AI-XF version each rule names.
+  entry: okf-validate
+  files: \.md$
+  id: okf-validate
+  language: python
+  name: OKF validate
+  require_serial: true

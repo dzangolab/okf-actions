@@ -1,0 +1,26 @@
+# Only what the pre-commit hook needs, `pip install .`: the package is `validate/`,
+# with its vendored validators. It isn't published to PyPI.
+
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools==84.2.1"]
+
+[project]
+dependencies = ["pyyaml==6.0.3"]
+description = "Validate OKF documents against the OKF or AI-XF version each rule names."
+license = "MIT"
+license-files = ["LICENSE"]
+name = "okf-actions"
+requires-python = ">=3.10"
+version = "2.2.0"
+
+[project.scripts]
+okf-validate = "okf_actions_validate.okf_validate:main"
+
+[tool.setuptools]
+include-package-data = false
+package-dir = { okf_actions_validate = "validate" }
+packages = ["okf_actions_validate"]
+
+[tool.setuptools.package-data]
+okf_actions_validate = ["vendor/**"]

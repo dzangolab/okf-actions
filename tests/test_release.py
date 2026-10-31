@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t",
        "GIT_COMMITTER_EMAIL": "t@example.com", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+PYPROJECT = '[project]\nname = "x"\nversion = "{version}"\n\n[tool.x]\ntarget-version = "1"\n'
 
 
 @unittest.skipUnless(shutil.which("just"), "just is not installed")
@@ -35,7 +36,7 @@ class ReleaseTest(unittest.TestCase):
         return result.stdout.strip()
 
     def commit_version(self, version):
-        (self.repo / "pyproject.toml").write_text(f'[project]\nname = "x"\nversion = "{version}"\n')
+        (self.repo / "pyproject.toml").write_text(PYPROJECT.format(version=version))
         self.git("add", ".")
         self.git("commit", "-q", "-m", f"chore: version {version}")
 
@@ -56,28 +57,42 @@ class ReleaseTest(unittest.TestCase):
                                 cwd=self.origin, env=ENV, capture_output=True, text=True)
         return result.stdout.strip() or None
 
+    def origin_file(self, ref, path):
+        return self.git("show", f"{ref}:{path}", cwd=self.origin) + "\n"
+
     def assert_refused(self, message, *args, tags=("v2.3.0",)):
         self.assertIn(message, self.release(*args, expect=1))
         self.assertEqual(self.origin_commit("v2"), self.old_head)
         for tag in tags:
             self.assertIsNone(self.origin_commit(tag))
 
-    def test_pushes_full_and_major_tag_from_a_bare_version(self):
-        head = self.bump("2.3.0")
+    def test_commits_the_version_to_main_and_tags_that_commit(self):
         self.release("2.3.0")
+        head = self.git("rev-parse", "HEAD")
+        self.assertNotEqual(head, self.old_head)
+        self.assertEqual(self.git("rev-parse", "main", cwd=self.origin), head)
+        self.assertEqual(self.git("log", "-1", "--format=%s", head), "chore(release): v2.3.0")
+        self.assertEqual(self.git("diff", "--name-only", self.old_head, head), "pyproject.toml")
+        self.assertEqual(self.origin_file("v2.3.0", "pyproject.toml"), PYPROJECT.format(version="2.3.0"))
         self.assertEqual(self.origin_commit("v2.3.0"), head)
         self.assertEqual(self.origin_commit("v2"), head)
         self.assertEqual(self.origin_commit("v2.2.0"), self.old_head)
+        self.assertEqual(self.git("status", "--porcelain"), "")
 
-    def test_accepts_a_v_prefix(self):
+    def test_a_version_already_declared_is_not_committed_again(self):
         head = self.bump("2.3.0")
-        self.release("v2.3.0")
+        self.release("2.3.0")
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
         self.assertEqual(self.origin_commit("v2.3.0"), head)
         self.assertEqual(self.origin_commit("v2"), head)
+
+    def test_accepts_a_v_prefix(self):
+        self.release("v2.3.0")
+        self.assertEqual(self.origin_file("v2.3.0", "pyproject.toml"), PYPROJECT.format(version="2.3.0"))
+        self.assertIsNotNone(self.origin_commit("v2"))
         self.assertIsNone(self.origin_commit("vv2.3.0"))
 
     def test_tags_are_annotated(self):
-        self.bump("2.3.0")
         self.release("2.3.0")
         for tag in ("v2.3.0", "v2"):
             self.assertEqual(self.git("cat-file", "-t", f"refs/tags/{tag}", cwd=self.origin), "tag")
@@ -85,14 +100,15 @@ class ReleaseTest(unittest.TestCase):
     def test_default_increments_the_minor_of_the_latest_release(self):
         self.git("tag", "-a", "-m", "v2.10.4", "v2.10.4")
         self.git("push", "-q", "origin", "v2.10.4")
-        head = self.bump("2.11.0")
         self.release(stdin="\n")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.origin_file("v2.11.0", "pyproject.toml"), PYPROJECT.format(version="2.11.0"))
         self.assertEqual(self.origin_commit("v2.11.0"), head)
         self.assertEqual(self.origin_commit("v2"), head)
 
     def test_prompt_accepts_another_version(self):
-        head = self.bump("3.0.0")
         self.release(stdin="3.0.0\n")
+        head = self.git("rev-parse", "HEAD")
         self.assertEqual(self.origin_commit("v3.0.0"), head)
         self.assertEqual(self.origin_commit("v3"), head)
         self.assertEqual(self.origin_commit("v2"), self.old_head)
@@ -101,8 +117,8 @@ class ReleaseTest(unittest.TestCase):
         self.git("tag", "-a", "-m", "v1.0.0", "v1.0.0", "HEAD")
         self.git("tag", "-a", "-m", "v1", "v1", "HEAD")
         self.git("push", "-q", "origin", "v1.0.0", "v1")
-        head = self.bump("1.0.1")
         self.release("1.0.1")
+        head = self.git("rev-parse", "HEAD")
         self.assertEqual(self.origin_commit("v1"), head)
         self.assertEqual(self.origin_commit("v2"), self.old_head)
 
@@ -115,42 +131,47 @@ class ReleaseTest(unittest.TestCase):
         self.assert_refused("v2.2.0 already exists", "2.2.0", tags=())
 
     def test_refuses_a_version_older_than_the_latest_of_its_major(self):
-        self.commit_version("2.1.0")
-        self.git("push", "-q", "origin", "main")
         self.assert_refused("v2.1.0 is older than v2.2.0", "2.1.0", tags=("v2.1.0",))
 
-    def test_refuses_a_version_pyproject_does_not_declare(self):
-        self.assert_refused("set it to 2.3.0", "2.3.0")
-
     def test_refuses_a_dirty_working_tree(self):
-        self.bump("2.3.0")
         (self.repo / "untracked").write_text("")
         self.assertIn("not clean", self.release("2.3.0", expect=1))
         self.assertIsNone(self.origin_commit("v2.3.0"))
 
     def test_refuses_another_branch(self):
-        self.bump("2.3.0")
         self.git("checkout", "-q", "-b", "feat/x")
         self.assertIn("not on main", self.release("2.3.0", expect=1))
         self.assertIsNone(self.origin_commit("v2.3.0"))
 
     def test_refuses_a_main_that_is_not_pushed(self):
-        self.commit_version("2.3.0")
+        self.commit_version("2.2.1")
         self.assertIn("not at origin/main", self.release("2.3.0", expect=1))
         self.assertIsNone(self.origin_commit("v2.3.0"))
 
     def test_a_failed_push_leaves_it_possible_to_retry(self):
-        head = self.bump("2.3.0")
         hook = self.origin / "hooks" / "pre-receive"
         hook.write_text("#!/bin/sh\nexit 1\n")
         hook.chmod(0o755)
         self.assertIn("push failed", self.release("2.3.0", expect=1))
         self.assertIsNone(self.origin_commit("v2.3.0"))
         self.assertEqual(self.origin_commit("v2"), self.old_head)
+        self.assertEqual(self.git("rev-parse", "main", cwd=self.origin), self.old_head)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.old_head)
+        self.assertEqual(self.git("status", "--porcelain"), "")
         hook.unlink()
         self.release("2.3.0")
+        head = self.git("rev-parse", "HEAD")
         self.assertEqual(self.origin_commit("v2.3.0"), head)
         self.assertEqual(self.origin_commit("v2"), head)
+
+    def test_a_failed_commit_changes_nothing(self):
+        hook = self.repo / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+        self.release("2.3.0", expect=1)
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.old_head)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertIsNone(self.origin_commit("v2.3.0"))
 
 
 if __name__ == "__main__":

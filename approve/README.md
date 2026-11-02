@@ -2,7 +2,7 @@
 
 [← okf-actions](../README.md)
 
-A GitHub Action that marks `draft` [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) documents `stable` when their pull request is merged, and records who is responsible. It works on any OKF document, and so on any [AI-XF](https://github.com/DavidROliverBA/ai-xf-format) document too: specs and test plans, an LLM wiki, READMEs.
+A GitHub Action that marks `draft` [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) documents `stable` when their pull request is merged, and records who is responsible. It works on markdown documents that follow the [OKF specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) or the [AI-XF specification](https://github.com/DavidROliverBA/ai-xf-format/blob/main/SPEC.md) such as: specs and test plans, LLM wiki pages, READMEs, general documentation.
 
 ## What this action does, and doesn't do
 

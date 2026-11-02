@@ -6,17 +6,19 @@ Provides GitHub Actions and a [pre-commit](https://pre-commit.com) hook for mark
 
 | Action | What it does |
 | --- | --- |
-| [`approve`](approve/README.md) | Marks documents approved when their pull request is merged: `draft` becomes `stable`, the people who vouched for them are recorded in `verified`, and an entry is added to the nearest `log.md`. |
+| [`approve`](approve/README.md) | Marks `draft` documents `stable` when their pull request is merged, records the people responsible in `verified`, and adds an entry to the nearest `log.md`. It leaves other pages alone and never blocks a merge. |
+| [`status`](status/README.md) | Changes the status of documents, or records that you verified them, from a workflow you run by hand. |
 | [`validate`](validate/README.md) | Validates documents against the spec and version each rule names: OKF 0.2, or AI-XF 0.5 at a conformance level. |
 
 Each action is a folder, which callers name after the repository:
 
 ```yaml
-- uses: dzangolab/okf-actions/approve@<commit sha> # v2.0.0
-- uses: dzangolab/okf-actions/validate@<commit sha> # v2.0.0
+- uses: dzangolab/okf-actions/approve@<commit sha> # v3.0.0
+- uses: dzangolab/okf-actions/status@<commit sha> # v3.0.0
+- uses: dzangolab/okf-actions/validate@<commit sha> # v3.0.0
 ```
 
-Pin the actions to a full commit SHA rather than a tag: a tag can be moved, a commit can't. Dependabot or Renovate keep the pin up to date. Both actions, and the hook below, share the repository's tags, so a release of one is a release of all.
+Pin the actions to a full commit SHA rather than a tag: a tag can be moved, a commit can't. Dependabot or Renovate keep the pin up to date. All the actions, and the hook below, share the repository's tags, so a release of one is a release of all.
 
 The repository was `dzangolab/okf-approve` until v2.0.0, where the approve action moved from the root to `approve/`.
 
@@ -36,7 +38,7 @@ Using husky, or committing from a Git GUI such as Fork? See [With husky](validat
 
 ## Development
 
-The actions are Python scripts, tested end to end. `approve` uses the standard library only; `validate` needs PyYAML. The recipes need [just](https://just.systems).
+The actions are Python scripts, tested end to end. `approve` and `status` use the standard library only; `validate` needs PyYAML. The recipes need [just](https://just.systems).
 
 ### Testing
 

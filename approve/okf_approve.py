@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Mark OKF documents approved when their pull request is merged.
 
-For each OKF document a pull request changed, the first rule whose paths match it
-decides who verified it (`verify`) and whether a draft becomes stable (`stable`).
-On a merged pull request the documents and the nearest `log.md` are updated in
-place; on an open one nothing is written and the outcome is only reported.
+Only `draft` documents a pull request changed are handled. For each, the first rule
+whose paths match it decides who is responsible for it (`verify`). A draft becomes
+stable only with somebody to record. On a merged pull request the documents and the
+nearest `log.md` are updated in place; on an open one nothing is written and the
+outcome is only reported. A merge is never blocked.
 """
 
 import datetime
@@ -15,12 +16,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+DEFAULT_VERIFY = ["approvers", "merger"]
 DEFAULT_RULES = [
-    {"paths": ["knowledge/**", "docs/**", "**/README.md"], "verify": ["owners"], "stable": "on-merge"},
-    {"paths": ["specs/**"], "verify": ["approvers"], "stable": "on-merge"},
+    {"paths": ["**/README.md", "docs/**", "knowledge/**", "specs/**"], "stable": "on-merge", "verify": DEFAULT_VERIFY},
 ]
-STABLE = ("on-merge", "on-verify", "never")
-VERIFY = ("approvers", "author", "merger", "owners")
+STABLE = ("never", "on-merge")
+VERIFY = ("approvers", "author", "merger", "reviewers")
 CODEOWNERS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
 # The commented-out `verified` placeholder that document templates may leave in.
 PLACEHOLDER = re.compile(r"#\s*(Added on merge|Add when the pull request is approved|Add on approval|verified:|-? *at:|by:)")
@@ -70,7 +71,15 @@ def load_rules(path):
         where = f"{path}: rules[{i}]"
         if not rule.get("paths"):
             sys.exit(f"::error::{where}: `paths` is required")
-        rule.setdefault("verify", [])
+        if "owners" in rule or "owners" in rule.get("verify", []):
+            sys.exit(f"::error::{where}: `owners` was renamed `reviewers`, as a key and as a `verify` value")
+        if rule.get("stable") == "on-verify":
+            sys.exit(f"::error::{where}: `stable: on-verify` was removed: a draft only ever becomes stable when "
+                     "somebody is recorded, so remove the key")
+        if rule.get("verify") == []:
+            sys.exit(f"::error::{where}: `verify` can't be empty: somebody must be responsible for a page becoming "
+                     "stable. To leave the pages alone, use `stable: never`")
+        rule.setdefault("verify", DEFAULT_VERIFY)
         rule.setdefault("stable", "on-merge")
         if unknown := [v for v in rule["verify"] if v not in VERIFY]:
             sys.exit(f"::error::{where}: unknown `verify` value {unknown}; use {list(VERIFY)}")
@@ -107,7 +116,7 @@ team_cache = {}
 
 
 def resolve(owners):
-    """Logins for `@user` and `@org/team` entries; teams need a token that can read them."""
+    """Lowercase logins for `@user` and `@org/team` entries; teams need a token that can read them."""
     logins = set()
     for owner in owners:
         if not owner.startswith("@"):
@@ -119,22 +128,27 @@ def resolve(owners):
                 if members is None:
                     warn(f"Couldn't read the members of {owner}: give the action a token that can read the "
                          "organization's teams. The team is skipped.")
-                team_cache[owner] = {m["login"] for m in members or []}
+                team_cache[owner] = {m["login"].lower() for m in members or []}
             logins |= team_cache[owner]
         else:
-            logins.add(owner[1:])
+            logins.add(owner[1:].lower())
     return logins
 
 
-def owners_of(rule, file, codeowners_file, codeowners_entries):
-    if rule.get("owners"):
-        return resolve(rule["owners"]), "the rule's `owners`"
+def reviewers_of(rule, file, codeowners_file, codeowners_entries):
+    """The logins who may verify the file; None when the rule and the repository define nobody."""
+    if rule.get("reviewers"):
+        return resolve(rule["reviewers"])
     if codeowners_file:
         for pattern, owners in reversed(codeowners_entries):
             if gitignore_match(pattern, file):
-                return resolve(owners), codeowners_file
-        return set(), codeowners_file
-    return None, None
+                return resolve(owners)
+        return set()
+    return None
+
+
+def is_bot(login):
+    return login.endswith("[bot]")
 
 
 def frontmatter(lines):
@@ -188,6 +202,23 @@ def add_log_entries(folder, entries):
     log.write_text("\n".join(text))
 
 
+def one_entry_per_person(verifiers):
+    """Somebody who both approves and merges is recorded once, at the later time."""
+    latest = {}
+    for login, at in verifiers:
+        latest[login] = max(at, latest.get(login, at))
+    return list(latest.items())
+
+
+def changes_to_the_rules(files, config):
+    """The files a pull request changes that decide how its own pages are verified."""
+    watched = {config, *CODEOWNERS}
+    if workflow := os.environ.get("GITHUB_WORKFLOW_REF"):  # owner/repo/.github/workflows/x.yml@ref
+        watched.add(workflow.split("@")[0].split("/", 2)[-1])
+    names = {name for f in files for name in (f["filename"], f.get("previous_filename"))}
+    return sorted(watched & names)
+
+
 def main():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     pr = event.get("pull_request")
@@ -197,9 +228,10 @@ def main():
     merged = bool(pr.get("merged"))
     merged_at = pr.get("merged_at") or "on merge"
     merger = (pr.get("merged_by") or {}).get("login")
-    label = os.environ.get("UNVERIFIED_LABEL", "okf: unverified")
-    unverified = label in [lbl["name"] for lbl in pr.get("labels", [])]
-    rules = load_rules(os.environ.get("CONFIG", ".github/okf-approve.yml"))
+    label = os.environ.get("KEEP_STATUS_LABEL", "okf: keep-status")
+    keep_status = label in [lbl["name"] for lbl in pr.get("labels", [])]
+    config = os.environ.get("CONFIG", ".github/okf-approve.yml")
+    rules = load_rules(config)
 
     # Each reviewer's latest decisive review counts; keep those that approve.
     latest = {}
@@ -208,7 +240,8 @@ def main():
             latest[review["user"]["login"]] = review
     approvals = {login: r["submitted_at"] for login, r in latest.items() if r["state"] == "APPROVED" and login != author}
 
-    changed = [f["filename"] for f in api(f"repos/{repo}/pulls/{number}/files") or []
+    files_changed = api(f"repos/{repo}/pulls/{number}/files") or []
+    changed = [f["filename"] for f in files_changed
                if f["status"] != "removed" and f["filename"].endswith(".md")
                and Path(f["filename"]).name not in ("index.md", "log.md") and Path(f["filename"]).exists()]
     claimed, ruled = set(), []
@@ -218,64 +251,65 @@ def main():
         ruled += [(rule, file) for file in files]
 
     codeowners_file, codeowners_entries = codeowners()
-    report, logs, missing_owners = [], {}, {}
+    report, logs, missing_reviewers, nobody = [], {}, {}, []
     for rule, file in ruled:
         lines = Path(file).read_text().split("\n")
         end = frontmatter(lines)
         if end is None:
             continue
         head = lines[1:end]
-        status = field(head, "status") or "stable"
+        if (field(head, "status") or "stable") != "draft":
+            continue
+        if rule["stable"] == "never" or keep_status:
+            report.append((file, "draft", []))
+            continue
 
         verifiers = []
-        if not unverified:
-            for kind in rule["verify"]:
-                if kind == "approvers":
-                    verifiers += list(approvals.items())
-                elif kind == "author":
-                    verifiers.append((author, merged_at))
-                elif kind == "merger":
+        for kind in rule["verify"]:
+            if kind == "approvers":
+                verifiers += list(approvals.items())
+            elif kind == "author":
+                verifiers.append((author, merged_at))
+            elif kind == "merger":
+                if merger or not merged:
                     verifiers.append((merger or "whoever merges", merged_at))
-                elif kind == "owners":
-                    owners, source = owners_of(rule, file, codeowners_file, codeowners_entries)
-                    if owners is None:
-                        missing_owners.setdefault(", ".join(rule["paths"]), []).append(file)
-                    else:
-                        verifiers += [(login, at) for login, at in approvals.items() if login in owners]
-        verifiers = list(dict.fromkeys(verifiers))
-        verifiers = [(login, at) for login, at in verifiers
-                     if f"by: human:{login}" not in "\n".join(head) or f"at: {at}" not in "\n".join(head)]
-
-        becomes = status
-        if status == "draft" and (rule["stable"] == "on-merge" or (rule["stable"] == "on-verify" and verifiers)):
-            becomes = "stable"
-        if becomes == status and not verifiers:
-            report.append((file, status, status, []))
+            elif kind == "reviewers":
+                reviewers = reviewers_of(rule, file, codeowners_file, codeowners_entries)
+                if reviewers is None:
+                    missing_reviewers.setdefault(", ".join(rule["paths"]), []).append(file)
+                else:
+                    verifiers += [(login, at) for login, at in approvals.items() if login.lower() in reviewers]
+        verifiers = one_entry_per_person((login, at) for login, at in verifiers if not is_bot(login))
+        if not verifiers:
+            nobody.append(file)
+            report.append((file, "draft", []))
             continue
-        report.append((file, status, becomes, [login for login, _ in verifiers]))
+        report.append((file, "stable", [login for login, _ in verifiers]))
         if not merged:
             continue
 
-        head = [f"status: {becomes}" if re.match(r"status:", line) else line for line in head]
-        if verifiers:
-            head = add_verified(head, verifiers)
+        head = ["status: stable" if re.match(r"status:", line) else line for line in head]
+        head = add_verified(head, verifiers)
         Path(file).write_text("\n".join(["---"] + head + lines[end:]))
 
         if folder := nearest_log(file):
             title = field(head, "title") or Path(file).stem
             link = "/" + str(Path(file).relative_to(folder))
             who = ", ".join(f"@{login}" for login, _ in verifiers)
-            if becomes != status:
-                how = f"merged in #{number} and marked {becomes}" + (f"; verified by {who}." if who else ", unverified.")
-            else:
-                how = f"verified by {who} in #{number}."
-            logs.setdefault(folder, []).append(f"**Update**: [{title}]({link}) {how}")
+            logs.setdefault(folder, []).append(
+                f"**Update**: [{title}]({link}) merged in #{number} and marked stable; verified by {who}.")
 
-    for paths, files in missing_owners.items():
-        warn(f"`{paths}` uses `verify: owners`, but no owners are defined (no `owners` in the rule and no "
-             f"CODEOWNERS file): {len(files)} document(s) left unverified by owners.")
-    if unverified:
-        warn(f"The pull request has the `{label}` label: nobody is recorded as verifying its documents.")
+    for paths, files in missing_reviewers.items():
+        warn(f"`{paths}` uses `verify: reviewers`, but no reviewers are defined (no `reviewers` in the rule and no "
+             f"CODEOWNERS file): {len(files)} document(s) can't be verified by reviewers.")
+    if nobody:
+        warn(f"{len(nobody)} document(s) stay draft, because nobody qualifies under their rule's `verify`: "
+             f"{', '.join(nobody)}.")
+    if keep_status:
+        warn(f"The pull request has the `{label}` label: its documents are left as they are.")
+    if not merged and (changes := changes_to_the_rules(files_changed, config)):
+        warn(f"This pull request changes how its own documents are verified, so review these closely: "
+             f"{', '.join(changes)}.")
     for folder, entries in logs.items():
         add_log_entries(folder, entries)
 
@@ -283,8 +317,8 @@ def main():
     lines = [f"### okf-approve: {'merged' if merged else 'preview'} #{number}", ""]
     if report:
         lines += ["| Document | Status | Verified by |", "| --- | --- | --- |"]
-        lines += [f"| `{f}` | {s}{' → ' + b if b != s else ''} | {', '.join('@' + v for v in vs) or 'nobody'} |"
-                  for f, s, b, vs in report]
+        lines += [f"| `{f}` | draft{' → stable' if b == 'stable' else ''} | {', '.join('@' + v for v in vs) or 'nobody'} |"
+                  for f, b, vs in report]
     else:
         lines.append("No OKF document matched by the rules.")
     lines += [""] + [f"> {w}" for w in warnings]
@@ -293,7 +327,7 @@ def main():
     if path := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(path, "a") as out:
             out.write(summary)
-    print(f"{verb}: {sum(1 for _, s, b, vs in report if b != s or vs)} document(s).")
+    print(f"{verb}: {sum(1 for _, b, _ in report if b == "stable")} document(s).")
 
 
 if __name__ == "__main__":

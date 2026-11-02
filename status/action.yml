@@ -1,0 +1,45 @@
+name: OKF status
+description: Change the status of OKF documents, or record a verification, from a manually run workflow.
+author: Dzango
+branding:
+  color: green
+  icon: edit
+
+inputs:
+  paths:
+    description: The documents to change, as files or globs, separated by spaces or commas.
+    required: true
+  status:
+    default: unchanged
+    description: The new status, one of deprecated, draft, stable or unchanged.
+  token:
+    default: ${{ github.token }}
+    description: Token for the push.
+  verify:
+    default: "false"
+    description: Whether to record the person running the workflow in verified. Setting a page stable always does.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        token: ${{ inputs.token }}
+
+    - name: Update the documents
+      shell: bash
+      env:
+        PATHS: ${{ inputs.paths }}
+        STATUS: ${{ inputs.status }}
+        VERIFY: ${{ inputs.verify }}
+      run: python3 "$GITHUB_ACTION_PATH/okf_status.py"
+
+    - name: Commit and push
+      shell: bash
+      run: |
+        git add -A
+        if git diff --cached --quiet; then exit 0; fi
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git commit -m "docs: update OKF documents, as requested by $GITHUB_ACTOR"
+        git push

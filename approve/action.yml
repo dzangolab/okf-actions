@@ -1,5 +1,5 @@
 name: OKF approve
-description: Mark OKF documents approved when their pull request is merged, recording who verified them.
+description: Mark draft OKF documents stable when their pull request is merged, recording who is responsible. Never blocks a merge.
 author: Dzango
 branding:
   color: green
@@ -9,12 +9,12 @@ inputs:
   config:
     default: .github/okf-approve.yml
     description: Path to the rules file. Without one, the default rules apply.
+  keep-status-label:
+    default: "okf: keep-status"
+    description: A pull request label that leaves its documents as they are, with nobody recorded.
   token:
     default: ${{ github.token }}
-    description: Token for the GitHub API and the push. To match teams in owners, it must be able to read the organization's teams.
-  unverified-label:
-    default: "okf: unverified"
-    description: A pull request label that stops anyone being recorded as verifying its documents.
+    description: Token for the GitHub API and the push. To match teams in reviewers, it must be able to read the organization's teams.
 
 runs:
   using: composite
@@ -29,7 +29,7 @@ runs:
       env:
         CONFIG: ${{ inputs.config }}
         GH_TOKEN: ${{ inputs.token }}
-        UNVERIFIED_LABEL: ${{ inputs.unverified-label }}
+        KEEP_STATUS_LABEL: ${{ inputs.keep-status-label }}
       run: python3 "$GITHUB_ACTION_PATH/okf_approve.py"
 
     - name: Commit and push

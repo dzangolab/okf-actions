@@ -1,6 +1,6 @@
 version: 2
 updates:
-  - directories: [/, /approve, /validate]
+  - directories: [/, /approve, /status, /validate]
     package-ecosystem: github-actions
     schedule:
       interval: weekly

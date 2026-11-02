@@ -1,6 +1,6 @@
 # okf-actions
 
-Provides GitHub Actions and a [pre-commit](https://pre-commit.com) hook for markdown documents that follow the [OKF specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) or the [AI-XF specification](https://github.com/DavidROliverBA/ai-xf-format) such as: specs and test plans, LLM wiki pages, READMEs, general documentation.
+Provides GitHub Actions and a [pre-commit](https://pre-commit.com) hook for markdown documents that follow the [OKF specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) or the [AI-XF specification](https://github.com/DavidROliverBA/ai-xf-format/blob/main/SPEC.md) such as: specs and test plans, LLM wiki pages, READMEs, general documentation.
 
 ## Github Actions
 

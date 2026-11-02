@@ -2,7 +2,7 @@
 
 [← okf-actions](../README.md)
 
-A GitHub Action that validates [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) documents against the spec and version you name: OKF itself, or [AI-XF](https://github.com/DavidROliverBA/ai-xf-format), its superset. Errors fail the run and are annotated on the files; warnings are only reported. It also runs as a [pre-commit hook](#pre-commit-hook).
+A GitHub Action that validates markdown documents that follow the [OKF specification](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) or the [AI-XF specification](https://github.com/DavidROliverBA/ai-xf-format/blob/main/SPEC.md) such as: specs and test plans, LLM wiki pages, READMEs, general documentation. Errors fail the run and are annotated on the files; warnings are only reported. It also runs as a [pre-commit hook](#pre-commit-hook).
 
 ## Usage
 
